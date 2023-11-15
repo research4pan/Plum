@@ -1,3 +1,7 @@
+<p align="center" width="50%">
+<img src="assets/logo.png" alt="Plum" style="width: 50%; min-width: 200px; display: block; margin: auto; background-color: transparent;">
+</p>
+
 # Plum: Prompt Learning using Metaheuristic
 Toolkits for discrete, black-box prompt learning based on metaheuristic algorithms.
 
