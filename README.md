@@ -1,5 +1,5 @@
 # Plum: Prompt Learning using Metaheuristic
-Toolkits for discrete, black-box prompt learning based on heuristic algorithms.
+Toolkits for discrete, black-box prompt learning based on metaheuristic algorithms.
 
 ## Installation
 Simple run the following command to create virtual enviornment and install all dependencies automatically.
