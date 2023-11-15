@@ -1,5 +1,5 @@
-<p align="center" width="50%">
-<img src="assets/logo.png" alt="Plum" style="width: 50%; min-width: 200px; display: block; margin: auto; background-color: transparent;">
+<p align="center" width="60%">
+<img src="assets/logo.png" alt="Plum" style="width: 60%; min-width: 200px; display: block; margin: auto; background-color: transparent;">
 </p>
 
 # Plum: Prompt Learning using Metaheuristic
