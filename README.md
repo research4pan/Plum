@@ -6,7 +6,7 @@
 Toolkits for discrete, black-box prompt learning based on metaheuristic algorithms.
 
 ## Installation
-Simple run the following command to create virtual enviornment and install all dependencies automatically.
+Simple run the following command to create virtual environment and install all dependencies automatically.
 
 `source install.sh`
 
