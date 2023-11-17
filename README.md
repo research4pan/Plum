@@ -224,7 +224,8 @@ If you use our code or extend our work, please consider citing our paper:
   title         = {Plum: Prompt Learning using Metaheuristic},
   author        = {Rui Pan, Shuo Xing, Shizhe Diao, Xiang Liu, Kashun Shum, Jipeng Zhang, and Tong Zhang},
   year          = {2023},
+  eprint        = {2311.08364},
   archivePrefix = {arXiv},
-  primaryClass  = {cs.CL},
+  primaryClass  = {cs.LG},
 }
 ```
