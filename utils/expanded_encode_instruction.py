@@ -6,6 +6,15 @@ import pdb
 from transformers import GPT2Tokenizer
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
+LLAMA2_TEMPLATE = '''
+            <s>[INST] <<SYS>>
+            <INSTRUCTION>
+            <</SYS>>
+
+            [/INST]</s>
+            <s>[INST] <QUESTION> [/INST]
+        '''
+
 def lowercase_list(lst):
     return [l.lower() for l in lst]
 
@@ -123,17 +132,26 @@ def encode_instruction(task, instruction_structure=['Definition','Prompt','Thing
         if null_word is None:
             if 'input' in modified.keys():
                 if generic_instruction!= '': 
-                    prompt=generic_instruction+"\n"+'input: '+data['Instances'][indexlist[i]]['input']+" " + modified['input'] + "\n"+"output:"
+                    if 'llama' == args.model_name:
+                        prompt = llama_2_create_prompt(generic_instruction, data['Instances'][indexlist[i]]['input']+" " + modified['input'])
+                    else:
+                        prompt=generic_instruction+"\n"+'input: '+data['Instances'][indexlist[i]]['input']+" " + modified['input'] + "\n"+"output:"
                 else: 
                     prompt='input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
             else:   
                 if generic_instruction!= '': 
-                    prompt=generic_instruction+"\n"+'input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
+                    if 'llama' == args.model_name:
+                        prompt = llama_2_create_prompt(generic_instruction, data['Instances'][indexlist[i]]['input'])
+                    else:
+                        prompt=generic_instruction+"\n"+'input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
                 else: 
                     prompt='input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
         else:
             if generic_instruction!='': 
-                prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, null_word)
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
             else: 
                 prompt='input: '+null_word+"\n"+"output:"
         if 'Completion' in labels[0]:
@@ -145,9 +163,15 @@ def encode_instruction(task, instruction_structure=['Definition','Prompt','Thing
     
     return promptlist, answerlist, indexlist
 
+def llama_2_create_prompt(instruction, question):
+    template = LLAMA2_TEMPLATE
+    template.replace('<QUESTION>', question)
+    template.replace('<INSTRUCTION>', instruction)
+    return template
+
 def training_encode_instruction(task, instruction_structure =['Definition','Prompt','Things to Avoid','Emphasis & Caution', 'Negative Examples Full Explanations', 'Positive Examples Full Explanations'], number_of_examples=0, number_of_instances= 100, null_word=None, data_seed=0, modified={}, args=None):
     random.seed(0) # Ensure the same test set
-    with open(args.data_dir+task) as json_file:
+    with open(args.data_dir+task, "rb") as json_file:
         data = json.load(json_file)
     labels = list(set([data["Instances"][i]["output"][0] for i in range(len(data["Instances"])) ]))
     labels.sort()
@@ -253,10 +277,19 @@ def training_encode_instruction(task, instruction_structure =['Definition','Prom
 
     for i in range(number_of_instances):
         if null_word is None:
-            if generic_instruction!= '': prompt=generic_instruction+"\n"+'input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
-            else: prompt='input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
+            if generic_instruction!= '': 
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, data['Instances'][indexlist[i]]['input'])
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
+            else: 
+                prompt='input: '+data['Instances'][indexlist[i]]['input']+"\n"+"output:"
         else:
-            if generic_instruction!='': prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
+            if generic_instruction!='': 
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, null_word)
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
             else: prompt='input: '+null_word+"\n"+"output:"
         if 'Completion' in labels[0]:
             prompt = prompt + ' Completion'
@@ -270,10 +303,18 @@ def training_encode_instruction(task, instruction_structure =['Definition','Prom
 
     for i in range(len(train_indexlist)):
         if null_word is None:
-            if generic_instruction!= '': prompt=generic_instruction+"\n"+'input: '+data['Instances'][train_indexlist[i]]['input']+"\n"+"output:"
+            if generic_instruction!= '': 
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, data['Instances'][train_indexlist[i]]['input'])
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+data['Instances'][train_indexlist[i]]['input']+"\n"+"output:"
             else: prompt='input: '+data['Instances'][train_indexlist[i]]['input']+"\n"+"output:"
         else:
-            if generic_instruction!='': prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
+            if generic_instruction!='': 
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, null_word)
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
             else: prompt='input: '+null_word+"\n"+"output:"
         if 'Completion' in labels[0]:
             prompt = prompt + ' Completion'
@@ -287,10 +328,19 @@ def training_encode_instruction(task, instruction_structure =['Definition','Prom
 
     for i in range(len(dev_indexlist)):
         if null_word is None:
-            if generic_instruction!= '': prompt=generic_instruction+"\n"+'input: '+data['Instances'][dev_indexlist[i]]['input']+"\n"+"output:"
-            else: prompt='input: '+data['Instances'][dev_indexlist[i]]['input']+"\n"+"output:"
+            if generic_instruction!= '': 
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, data['Instances'][dev_indexlist[i]]['input'])
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+data['Instances'][dev_indexlist[i]]['input']+"\n"+"output:"
+            else: 
+                prompt='input: '+data['Instances'][dev_indexlist[i]]['input']+"\n"+"output:"
         else:
-            if generic_instruction!='': prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
+            if generic_instruction!='': 
+                if 'llama' == args.model_name:
+                    prompt = llama_2_create_prompt(generic_instruction, null_word)
+                else:
+                    prompt=generic_instruction+"\n"+'input: '+null_word+"\n"+"output:"
             else: prompt='input: '+null_word+"\n"+"output:"
         if 'Completion' in labels[0]:
             prompt = prompt + ' Completion'

@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import os
 import json
 from utils.expanded_encode_instruction import *
@@ -8,7 +7,11 @@ from copy import deepcopy
 from tqdm import tqdm
 import argparse
 from sklearn.metrics import f1_score as F1
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# Loading the tokenizer and model from Hugging Face's model hub.
+tokenizer = AutoTokenizer.from_pretrained("/home/xingshuo/.cache/huggingface/hub/models--TinyLlama--TinyLlama-1.1B-intermediate-step-1431k-3T/snapshots/036fa4651240b9a1487f709833b9e4b96b4c1574")
+model = AutoModelForCausalLM.from_pretrained("/home/xingshuo/.cache/huggingface/hub/models--TinyLlama--TinyLlama-1.1B-intermediate-step-1431k-3T/snapshots/036fa4651240b9a1487f709833b9e4b96b4c1574")
 
 # Extra define 
 null_words = ["N/A", "", "[MASK]"]
@@ -17,11 +20,6 @@ num_gen_tokens = 1
 all_regular_preds = []
 all_calibrated_preds = []
 all_answers = []
-
-# initialize tokenizer and model from pretrained GPT2 model
-tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-# model = GPT2LMHeadModel.from_pretrained('/home/xingshuo/.cache/huggingface/hub/models--gpt2-xl/snapshots/33cdb5c0db5423c1879b1b9f16c352988e8754a8')
-model = GPT2LMHeadModel.from_pretrained('/home/xingshuo/.cache/huggingface/hub/models--gpt2-large/snapshots/97935fc1a406f447320c3db70fe9e9875dca2595')
 
 
 model.eval().cuda()

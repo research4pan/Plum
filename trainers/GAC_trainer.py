@@ -1,24 +1,24 @@
 from trainers.base_trainer import SimpleTrainer
 import numpy as np
 import os, re
-import json
 import wandb
 from supar import Parser
 import sys 
+import string
+import heapq
 sys.path.append("..") 
+import random
 import utils.nat_inst_gpt3 as gpt3
 import utils.nat_inst_gpt2 as gpt2
 import utils.nat_inst_phi2 as phi2
 import utils.nat_inst_tinyllama as tinyllama
-import utils.lcs as lcs
-import random
 from pathlib import Path
 
+class GAC_trainer(SimpleTrainer):
 
-class TB_trainer(SimpleTrainer):
-
-    def __init__(self, maxiter, patience, train_seed, seed, num_compose, num_candidates, backbone):
-        super(TB_trainer, self).__init__(maxiter, patience, train_seed, seed, num_compose, num_candidates, backbone)
+    def __init__(self, maxiter, patience, train_seed, seed, num_compose, num_candidates, num_tournaments, backbone):
+        super(GAC_trainer, self).__init__(maxiter, patience, train_seed, seed, num_compose, num_candidates, backbone)
+        self.num_tournaments = num_tournaments
         self.patience_counter = 1
         self.W_candidates = []
         self.W_scores = []
@@ -29,7 +29,7 @@ class TB_trainer(SimpleTrainer):
         self.parser = Parser.load('crf-con-en')
         self.para_tokenizer = None
         self.para_model = None
-        self.tabu_table = []
+        self.W_deletesets = []
         self.state = {}
         
     def get_state(self, current_iteration, delete_tracker):
@@ -59,19 +59,43 @@ class TB_trainer(SimpleTrainer):
         base_score = S_scroes[base_idx] # base_score <-- S_candidates(base_idx)
         
         return base_candidate, base_score
+    
+    def crossover(self, parent_1, parent_2, args):
+        flag_error = False
+        try:
+            phrases_1_pun = self.get_phrase_lookup_pun(parent_1, args)
+            phrases_2_pun = self.get_phrase_lookup_pun(parent_2, args)
+        except AttributeError:
+            offspring=''
+            flag_error = True
+            return offspring, flag_error
+        phrases_1 = [phrase for phrase in list(phrases_1_pun.values()) if phrase not in string.punctuation or phrase == '']
+        phrases_2 = [phrase for phrase in list(phrases_2_pun.values()) if phrase not in string.punctuation or phrase == '']
+
+        split = np.random.randint(0,max(len(phrases_1),len(phrases_2)))
+        
+        if split >= len(phrases_1):
+            offspring_phrases = list(phrases_1_pun.values()) + list(phrases_2_pun.values())[list(phrases_2_pun.values()).index(phrases_2[split]):]
+        elif split >= len(phrases_2):
+            offspring_phrases = list(phrases_1_pun.values())[0:list(phrases_1_pun.values()).index(phrases_1[split])]
+        else:
+            offspring_phrases = list(phrases_1_pun.values())[0:list(phrases_1_pun.values()).index(phrases_1[split])] + list(phrases_2_pun.values())[list(phrases_2_pun.values()).index(phrases_2[split]):]
+        offspring_words = []
+        for phrase in offspring_phrases:
+            offspring_words = offspring_words + self.word_tokenize(phrase)
+        offspring = self.detokenize(offspring_words)
+        return offspring, flag_error
 
     def containenglish(self, str0):
         return bool(re.search('[a-z A-Z]', str0))
 
-    def mutated_tabu(self, base_candidate, phrase_lookup, use_add, delete_tracker, edit_operations, args):
+    def mutated(self, base_candidate, phrase_lookup, use_add, i, edit_operations, args):
 
-        deleted = {}
-        added = {}
         
         if base_candidate == self.original_candidate:
             for p in phrase_lookup.values(): print(p)
         if use_add: 
-            if len(delete_tracker): 
+            if len(self.W_deletesets[i]): 
                 if 'add' not in edit_operations: edit_operations.append('add')
             else: 
                 if 'add' in edit_operations: edit_operations.remove('add')
@@ -90,14 +114,19 @@ class TB_trainer(SimpleTrainer):
             candidates = []
             for edit in edits:
                 if isinstance(edit, str): 
-                    candidate, indices = self.perform_edit(edit, base_candidate, phrase_lookup, delete_tracker)
+                    candidate, indices = self.perform_edit(edit, base_candidate, phrase_lookup, self.W_deletesets[i])
                     empty = not self.containenglish(candidate)
                     if not empty:
                         print(candidate)
                         candidates.append(candidate)
-                        if edit  == 'del': deleted[candidate] = [phrase_lookup[indices[0]]]
+                        deleteset = []
+                        if edit  == 'del': 
+                            deleteset = self.W_deletesets[i] + [phrase_lookup[indices[0]]]
                         if edit == 'add': 
-                            if len(indices): added[candidate] = indices
+                            if len(indices): 
+                                deleteset = self.W_deletesets[i]
+                                deleteset.remove(indices[0])
+                        self.W_deletesets.append(deleteset)
                     else:
                         print('''Note: The mutated candidate is an empty string, and it is deleted.''')
                 else:
@@ -106,7 +135,7 @@ class TB_trainer(SimpleTrainer):
                     composed_adds = []
                     for op in edit:
                         phrase_lookup = self.get_phrase_lookup(old_candidate, args)
-                        new_candidate, indices = self.perform_edit(op, old_candidate, phrase_lookup, delete_tracker)
+                        new_candidate, indices = self.perform_edit(op, old_candidate, phrase_lookup, self.W_deletesets[i])
                         empty = not self.containenglish(new_candidate)
                         if not empty:
                             print(new_candidate)
@@ -119,66 +148,38 @@ class TB_trainer(SimpleTrainer):
 
                     if not empty:
                         candidates.append(new_candidate)
-                        if 'del' in edit: deleted[new_candidate] = composed_deletes
-                        if 'add' in edit and len(composed_adds) > 0: added[new_candidate] = composed_adds
+                        deleteset = []
+                        if 'del' in edit: 
+                            deleteset = self.W_deletesets[i] + composed_deletes
+                        if 'add' in edit and len(composed_adds) > 0: 
+                            deleteset = self.W_deletesets[i]
+                            for phrase in composed_adds:
+                                deleteset.remove(phrase) 
+                        self.W_deletesets.append(deleteset)
         scores = []
-        tabu_candidates = []
         for c, candidate in enumerate(candidates):
-            tabu_res = self.tabu(candidate, mode='match')
-            if tabu_res == 0:
-                tabu_candidates.append(candidate)
-                scores.append(self.score(candidate, args=args))
-                print(scores[-1])
+            scores.append(self.score(candidate, args=args))
+            print(scores[-1])
 
-        return tabu_candidates, scores, deleted, added 
-    
-    def tabu(self, candidate, mode='match',temp=0.5, thre=0.5):
-        if mode == 'match':
-            if candidate in self.tabu_table:
-                if temp >=  np.random.random():
-                    return 0
-                else:
-                    return 1
-            else:
-                return 0
-        else:
-            lc = [] # list of the longest common subseqences / subsrtings
-            for item in self.tabu_table:
-                if mode == 'lcsq': # similarity by longest common subseqences
-                    candidate = ' ' + candidate
-                    item = ' ' + item
-                    lc.append(lcs.hunt_szymanski(candidate, item))
-                elif mode == 'lcss': # similarity by longest common subsrtings
-                    lc.append(lcs.lcs_ukkonen(candidate, item))
-                    
-            avg_len = len(''.join(self.tabu_table))/len(self.tabu_table) # average length of the candidates in tabu table
-            lcsq_avg_len = len(''.join(lc))/len(lc) # average length of the longest common subseqences / subsrtings
-            similarity = lcsq_avg_len/avg_len
-            
-            if similarity >= thre:
-                if temp >=  np.random.random():
-                    return 0
-                else:
-                    return 1
-            else:
-                return 0
-                
-
+        return candidates, scores  
 
     def train(self, instruction, chosen_task_name, args):
-        
-        N_tabu = 5
-
         meta_path = os.path.join(args.meta_dir, args.meta_name)
         meta_file = open(meta_path, 'w+')
+
         edit_operations = args.edits
+
         use_add = 'add' in edit_operations
 
         if 'sub' in edit_operations:
             self.if_sub(edit_operations)
 
         self.init_population(instruction, args)
-        self.tabu_table.append(self.original_candidate)
+
+        self.W_candidates = self.W_candidates * args.population_size 
+        self.W_scores = self.W_scores * args.population_size  
+        for i in range(args.population_size):
+            self.W_deletesets.append([])   # record a DeleteSet(D) for each prompt in the population     
 
         meta_file.write("Original Candidate:\t "+ self.original_candidate + '\n')
         meta_file.write("Original Score:\t "+ str(self.original_score) + '\n')
@@ -194,63 +195,93 @@ class TB_trainer(SimpleTrainer):
             
         while current_iteration < self.maxiter:
             current_iteration += 1
-            #Base_candidate after battled in the tournament
-            base_candidate = self.result_candidate
-            base_score = self.result_score
+            for j in range(args.num_offspring):
 
-            meta_file.write("Base Candidate:\t "+ base_candidate + '\n')
-            meta_file.write("Base Score:\t "+ str(base_score) + '\n')
-            
-            wandb.log({"step": current_iteration, "base_score": base_score})
+                parent_1, parent_score_1 = self.tournament_selection() # parent_1, parent_score_1 <-- tournament(W_{i-1})
+                parent_2, parent_score_2 = self.tournament_selection() # parent_1, parent_score_1 <-- tournament(W_{i-1})
+                meta_file.write("parent_1" + str(j) + ":\t " + parent_1+ '\n')
+                meta_file.write("parent_2" + str(j) + ":\t " + parent_2+ '\n')
 
-            #when the error (caused by parser) occurs, delete the corresponding candidate and its score from the population W
-            try:
-                phrase_lookup = self.get_phrase_lookup(base_candidate, args) 
-            except AttributeError:
-                self.W_scores.remove(self.W_scores[self.W_candidates.index(base_candidate)]) 
-                self.W_candidates.remove(base_candidate)
-                meta_file.write("AttributeError occurs (parser) and skip this iteration"+ '\n')
-                print('AttributeError occurs (parser) and skip this iteration')
-                self.result_score = self.W_scores[-1]
-                self.result_candidate = self.W_candidates[-1]
-                continue
+                #################### zhushi
+                empty = True
 
-            candidates, scores, deleted, added = self.mutated_tabu(base_candidate, phrase_lookup, use_add, delete_tracker, edit_operations, args)
-            
-            if not len(candidates) == 0: 
-                best_score, best_candidate = self.choose_best(candidates, scores)
-                self.tabu_table.append(best_candidate)
-            else:
-                continue
-            
-            
-            if len(self.tabu_table) > N_tabu:
-                self.tabu_table.pop(0)
-            wandb.log({"best_score": best_score})
-            use_simulated_anneal = args.simulated_anneal
+                while empty:
 
-            if use_simulated_anneal:
-                add_best_or_not = self.update_result_add(best_score, best_candidate, use_simulated_anneal, current_iteration)
-            else:
-                add_best_or_not = self.update_result_add(best_score, best_candidate)
-            
-            if add_best_or_not:
-                self.W_candidates.append(best_candidate)
-                self.W_scores.append(best_score)
+                    offspring, flag_error = self.crossover(parent_1, parent_2, args) # offspring <-- crossover(parent_1, parent_2)
 
-                if self.result_candidate in added.keys():
-                    print('Notice! Prev tracker: ', delete_tracker)
-                    for chunk in added[self.result_candidate]: 
-                        try: 
-                            delete_tracker.remove(chunk)
-                        except: 
-                            pass
-                    print('Notice! New tracker: ', delete_tracker)
+                    empty = not self.containenglish(offspring) #### 
 
-                if self.result_candidate in deleted.keys():
-                    delete_tracker.extend(deleted[self.result_candidate])
+                    if flag_error:
+                        break
+                ####################
 
-                # self.result_candidate = self.detokenize(self.word_tokenize(self.result_candidate))
+                if flag_error: 
+                    meta_file.write("AttributeError occurs (parser) and skip this crossover operation"+ '\n')
+                    print('AttributeError occurs (parser) and skip this crossover operation')
+                    continue
+
+                meta_file.write("Offspring" + str(j) + ":\t " + offspring + '\n')
+                if offspring not in self.W_candidates:
+                    offspring_score = self.score(offspring, args=args)
+                    # population W  <-- offspring
+                    self.W_candidates.append(offspring) 
+                    self.W_scores.append(offspring_score) 
+                    self.W_deletesets.append(self.W_deletesets[self.W_candidates.index(parent_1)])
+                    meta_file.write("Offspring:\t" + offspring + '\n') 
+                    meta_file.write("Adding offspring in the population" + '\n') 
+
+            if args.num_offspring > 0:
+                top_N_p_idx_list = heapq.nlargest(args.population_size, range(len(self.W_scores)), self.W_scores.__getitem__)
+                # population W <-- Top-N_p(population W)
+                W_candidates_top_N_p = [self.W_candidates[i] for i in top_N_p_idx_list]
+                W_scores_top_N_p = [self.W_scores[i] for i in top_N_p_idx_list]
+                W_deletesets_N_p = [self.W_deletesets[i] for i in top_N_p_idx_list]
+                self.W_candidates = W_candidates_top_N_p
+                self.W_scores = W_scores_top_N_p
+                self.W_deletesets = W_deletesets_N_p
+                self.update_result(self.W_candidates, self.W_scores) # update result
+
+                wandb.log({"result_score_after_crossover": self.result_score})
+
+            if self.patience_counter > args.patience:
+                print('Ran out of patience')
+                meta_file.write('Ran out of patience \n')
+                break
+            else : pass
+
+            # W' <-- W
+            W_candidates_m = self.W_candidates
+            W_scores_m = self.W_scores
+            for i, base_candidate in enumerate(W_candidates_m):
+                if args.mutation_prob > np.random.random():            
+                    try:
+                        phrase_lookup = self.get_phrase_lookup(base_candidate, args)
+                    except AttributeError:
+                        self.W_scores.remove(self.W_scores[self.W_candidates.index(base_candidate)]) 
+                        self.W_candidates.remove(base_candidate)
+                        meta_file.write("AttributeError occurs (parser) and skip this mutation"+ '\n')
+                        print('AttributeError occurs (parser) and skip this mutation')
+                        continue
+                    candidates, scores = self.mutated(base_candidate, phrase_lookup, use_add, i, edit_operations, args)
+
+                    W_scores_m = W_scores_m + scores
+                    W_candidates_m = W_candidates_m + candidates
+                    W_deletesets_m = self.W_deletesets
+
+            top_N_p_idx_list_m = heapq.nlargest(args.population_size, range(len(W_scores_m)), W_scores_m.__getitem__)
+            W_candidates_m_top_N_p = [W_candidates_m[i] for i in top_N_p_idx_list_m]
+            W_scores_m_top_N_p = [W_scores_m[i] for i in top_N_p_idx_list_m]
+            W_deletesets_m_top_N_p = [W_deletesets_m[i] for i in top_N_p_idx_list_m]
+
+            self.W_candidates = W_candidates_m_top_N_p
+            self.W_scores = W_scores_m_top_N_p
+            self.W_deletesets = W_deletesets_m_top_N_p
+
+            self.update_result(self.W_candidates, self.W_scores)
+
+            wandb.log({"result_score_after_mutation": self.result_score})
+
+            self.result_candidate = self.detokenize(self.word_tokenize(self.result_candidate))
 
             if current_iteration % args.checkpoint_freq == 0:
                 self.get_state(current_iteration, delete_tracker)
@@ -271,10 +302,12 @@ class TB_trainer(SimpleTrainer):
 
             if args.backbone == "tinyllama":
                 count = tinyllama.complete_gpt2.count
-                
+            
             # if count >= args.budget:
             #     print('Ran out of budget')
             #     break
+            # else: 
+            #     continue
 
             if self.patience_counter > args.patience:
                 print('Ran out of patience')
@@ -287,7 +320,7 @@ class TB_trainer(SimpleTrainer):
                 continue
 
         wandb.log({"result_score": self.result_score})
-
+        
         if args.backbone == "gpt3":
             count = gpt3.complete_gpt3.count
 
@@ -306,9 +339,7 @@ class TB_trainer(SimpleTrainer):
         print('APICalls for search:\t', count)
 
         wandb.log({"apicalls_search": count})
-
         meta_file.write('\n')
-
         searched_score = self.test(self.result_candidate, args)
 
         meta_file.write('Testing .... \n')
@@ -346,10 +377,3 @@ class TB_trainer(SimpleTrainer):
         searched_score = self.score(instruction, 'test', write=args.write_preds, args=args)
 
         return searched_score
-
-
-
-
-        
-
-

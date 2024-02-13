@@ -8,6 +8,8 @@ import string
 import random
 import utils.nat_inst_gpt3 as gpt3
 import utils.nat_inst_gpt2 as gpt2
+import utils.nat_inst_phi2 as phi2
+import utils.nat_inst_tinyllama as tinyllama
 from utils.expanded_encode_instruction import *
 from sklearn.metrics import balanced_accuracy_score
 import json
@@ -65,12 +67,18 @@ class SimpleTrainer(TrainerBase):
 
     def __init__(self, maxiter, patience, train_seed, data_seed, num_compose, num_candidates, backbone):
         super(SimpleTrainer, self).__init__(maxiter, patience, train_seed, data_seed, num_compose, num_candidates)
-        if backbone == "gpt3":
+        if backbone == "gpt3" or backbone == "llama":
             self.run = gpt3.run
             self.get_prediction = gpt3.get_prediction
         if backbone == "gpt2":
             self.run = gpt2.run
             self.get_prediction = gpt2.get_prediction
+        if backbone == "phi2":
+            self.run = phi2.run
+            self.get_prediction = phi2.get_prediction
+        if backbone == "tinyllama":
+            self.run = tinyllama.run
+            self.get_prediction = tinyllama.get_prediction
         self.patience_counter = 1
         self.W_candidates = []
         self.W_scores = []
@@ -193,6 +201,19 @@ class SimpleTrainer(TrainerBase):
             answer = answer.replace('<1>', phrase_2)
             answer = answer.replace('<2>', phrase_1)
         return answer
+    
+    # grips
+    # def swap_phrases(self, candidate, phrase_1, phrase_2):
+    #     if candidate.find(' ' + phrase_1 + ' ') >= 0 : 
+    #         answer = candidate.replace(' ' + phrase_1 + ' ', ' <1> ')
+    #     else: answer = candidate.replace(phrase_1, '<1>')
+    #     if candidate.find(' ' + phrase_2 + ' ') >= 0 : 
+    #         answer = candidate.replace(' ' + phrase_2 + ' ', ' <2> ')
+    #     else: answer = candidate.replace(phrase_2, '<2>')
+    #     answer = answer.replace('<1>', phrase_2)
+    #     answer = answer.replace('<2>', phrase_1)
+    #     return answer
+    
 
     def substitute_phrase(self, candidate, phrase):
         num_beams = 10
@@ -257,7 +278,10 @@ class SimpleTrainer(TrainerBase):
     def score(self, candidate, split='train', write=False, args=None):
         task_labels = args.task_labels
         label_probs, calibrated_label_probs , raw_acc_count , raw_cal_acc_count , answer_list, index_list, _ = self.run(mode=args.mode, batch_size=args.batch_size, num_shots=args.num_shots, chosen_task_name=args.chosen_task_name, num_samples=args.num_samples, data_seed=args.data_seed, override_prompts=True, function = self.custom_instruction_prompt, split=split, modified={'Definition': candidate}, task_labels=task_labels, if_calibrate = False, args=args)
-        preds = self.get_prediction(label_probs, task_labels)
+        if 'llama' == args.model_name:
+            pass
+        else:
+            preds = self.get_prediction(label_probs, task_labels)
         raw_acc = balanced_accuracy_score(answer_list, preds)
         label_frequencies = [preds.count(l)/len(preds) for l in task_labels]
         if split == 'train': return np.round(100*raw_acc, 2) + 10*entropy(label_frequencies)

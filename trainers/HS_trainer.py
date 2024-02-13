@@ -1,13 +1,15 @@
 from trainers.base_trainer import SimpleTrainer
 import numpy as np
 import os, re
-import json
+import json, time
 import wandb
 from supar import Parser
 import sys 
 sys.path.append("..") 
 import utils.nat_inst_gpt3 as gpt3
 import utils.nat_inst_gpt2 as gpt2
+import utils.nat_inst_phi2 as phi2
+import utils.nat_inst_tinyllama as tinyllama
 import random
 from pathlib import Path
 import math
@@ -175,11 +177,15 @@ class HS_trainer(SimpleTrainer):
 
     def train(self, instruction, chosen_task_name, args):
         
-        ks = 5
-        HMCR = 0.4
-        PAR = 0.5
+        # ks = 5
+        ks = args.ks
+        # HMCR = 0.4
+        HMCR = args.hmcr
+        # PAR = 0.5
+        PAR = args.par
         edit_opertions_small = 'sub'
-        N_H = 10
+        N_H = args.n_h
+        # N_H = 10
 
         meta_path = os.path.join(args.meta_dir, args.meta_name)
         meta_file = open(meta_path, 'w+')
@@ -202,6 +208,8 @@ class HS_trainer(SimpleTrainer):
             print("Resuming the searching from checkpoints...")
             self.load(args.resume)
             current_iteration, delete_tracker = self.set_state()
+
+        start_time = time.time()
             
         while current_iteration < self.maxiter:
             current_iteration += 1
@@ -281,9 +289,18 @@ class HS_trainer(SimpleTrainer):
         
             if args.backbone == "gpt2":
                 count = gpt2.complete_gpt2.count
+
+            if args.backbone == "phi2":
+                count = phi2.complete_gpt2.count
+
+            if args.backbone == "tinyllama":
+                count = tinyllama.complete_gpt2.count
                 
             if count >= args.budget:
                 print('Ran out of budget')
+                break
+
+            if time.time() - start_time > args.time_out:
                 break
 
             # if self.patience_counter > args.patience:
@@ -300,9 +317,18 @@ class HS_trainer(SimpleTrainer):
 
         if args.backbone == "gpt3":
             count = gpt3.complete_gpt3.count
+
+        if args.backbone == "llama":
+            count = gpt3.complete_llama2_7b.count
         
         if args.backbone == "gpt2":
             count = gpt2.complete_gpt2.count
+
+        if args.backbone == "phi2":
+            count = phi2.complete_gpt2.count
+
+        if args.backbone == "tinyllama":
+            count = tinyllama.complete_gpt2.count
             
         print('APICalls for search:\t', count)
 

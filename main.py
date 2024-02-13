@@ -5,7 +5,7 @@ import argparse
 import json
 import wandb
 from config import get_cfg_default
-from trainers import GA_trainer, HC_trainer, HS_trainer, TB_trainer
+from trainers import GA_trainer, HC_trainer, HS_trainer, TB_trainer, GAC_trainer
 
 def print_args(args, cfg):
     print("***************")
@@ -86,7 +86,7 @@ def main(args):
     print("Collecting env info ...")
     print("** System info **\n{}\n".format(collect_env_info()))
 
-    if args.backbone == "gpt3":
+    if args.backbone == "gpt3" or args.backbone == "llama":
         import utils.nat_inst_gpt3 as gpt3
         gpt3.key = args.key_id
         construct_instruction_prompt = gpt3.construct_instruction_prompt
@@ -94,6 +94,14 @@ def main(args):
     if args.backbone == "gpt2":
         import utils.nat_inst_gpt2 as gpt2
         construct_instruction_prompt = gpt2.construct_instruction_prompt
+
+    if args.backbone == "phi2":
+        import utils.nat_inst_phi2 as phi2
+        construct_instruction_prompt = phi2.construct_instruction_prompt
+
+    if args.backbone == "tinyllama":
+        import utils.nat_inst_tinyllama as tinyllama
+        construct_instruction_prompt = tinyllama.construct_instruction_prompt
 
     num_shots = args.num_shots
     data_seed = args.data_seed
@@ -131,6 +139,9 @@ def main(args):
     print("Instruction Edit2: ", instruction)
     if args.agnostic:
         instruction = "You will be given a task. Read and understand the task carefully, and appropriately answer '{}' or '{}'.".format(task_labels[0], task_labels[1])
+        if args.backbone == "llama":
+            note = "Answer with {} or {} only.".format(task_labels[0], task_labels[1])
+            instruction += note
 
     wandb.log({"num_compose": num_compose})
     wandb.log({"num_candidates": num_candidates})
@@ -147,6 +158,8 @@ def main(args):
         trainer = HS_trainer.HS_trainer(num_steps, patience, train_seed, data_seed, num_compose, num_candidates, backbone)
     elif args.algorithm == "tabu":
         trainer = TB_trainer.TB_trainer(num_steps, patience, train_seed, data_seed, num_compose, num_candidates, backbone)
+    elif args.algorithm == "gac":
+        trainer = GAC_trainer.GAC_trainer(num_steps, patience, train_seed, data_seed, num_compose, num_candidates, num_tournaments, backbone)
     else:
         raise ValueError(f"Invalid algorithm type.")
 
@@ -187,6 +200,9 @@ if __name__ == "__main__":
     parser.add_argument('--key-id', default=0, type=int, help='Use if you have access to multiple Open AI keys')
     parser.add_argument('--edits', nargs="+", default=['del', 'swap', 'sub', 'add'], help='Space of edit ops to be considered')
     parser.add_argument('--tournament-selection', default=3, type=int, help='Number of tournament selections')
+    parser.add_argument('--population-size', default=10, type=int, help='Population size for Genetic Algorithm')
+    parser.add_argument('--num-offspring', default=0, type=int, help='Number of the offspring for Genetic Algorithm')
+    parser.add_argument('--mutation-prob', default=0.5, type=float, help='Mutation probability for Genetic Algorithm')
     parser.add_argument('--project-name', default='evolutional-prompt', help='Name of the wandb project')
     parser.add_argument('--num-samples', default=100, type=int, help='size of score set, default is 100')
     parser.add_argument('--classification-task-ids', default=['019', '021', '022', '050', '069', '137', '139', '195'], type=list, help='classification tasks')
@@ -203,8 +219,13 @@ if __name__ == "__main__":
     parser.add_argument("opts", default=None, nargs=argparse.REMAINDER, help="modify config options using the command-line")
     parser.add_argument('--budget', default=1000, type=int, help='number of the budget of api calls for searching')
     parser.add_argument('--api-idx', type=int, default=0)
+    parser.add_argument('--hmcr', default=0.4, type=float, help='HMCR for HS')
+    parser.add_argument('--par', default=0.5, type=float, help='PAR for HS')
+    parser.add_argument('--n_h', default=10, type=int, help='N_H for HS')
+    parser.add_argument('--ks', default=5, type=int, help='ks for HS')
+    parser.add_argument("--time_out", default=2400, type=int)
     args = parser.parse_args()
-    wandb.login(key='xxxxxxx-xxxxx-xxxx-xxxxx') # replace your own wandb key if there are multiple wandb accounts in your server
+    wandb.login(key='c9039a6663b7aa3fa1260f5c004c21cce2584bd1') # replace your own wandb key if there are multiple wandb accounts in your server
     wandb.init(project=args.project_name, name=args.meta_name)
 
     wandb.config.update(args)

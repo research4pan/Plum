@@ -8,6 +8,8 @@ import sys
 sys.path.append("..") 
 import utils.nat_inst_gpt3 as gpt3
 import utils.nat_inst_gpt2 as gpt2
+import utils.nat_inst_phi2 as phi2
+import utils.nat_inst_tinyllama as tinyllama
 import random
 from pathlib import Path
 
@@ -197,7 +199,7 @@ class HC_trainer(SimpleTrainer):
                 if self.result_candidate in deleted.keys():
                     delete_tracker.extend(deleted[self.result_candidate])
 
-                self.result_candidate = self.detokenize(self.word_tokenize(self.result_candidate))
+                # self.result_candidate = self.detokenize(self.word_tokenize(self.result_candidate))
 
             if current_iteration % args.checkpoint_freq == 0:
                 self.get_state(current_iteration, delete_tracker)
@@ -209,9 +211,18 @@ class HC_trainer(SimpleTrainer):
                 
             if args.backbone == "gpt3":
                 count = gpt3.complete_gpt3.count
+            
+            if args.backbone == "llama":
+                count = gpt3.complete_llama2_7b.count
         
             if args.backbone == "gpt2":
                 count = gpt2.complete_gpt2.count
+
+            if args.backbone == "phi2":
+                count = phi2.complete_gpt2.count
+
+            if args.backbone == "tinyllama":
+                count = tinyllama.complete_gpt2.count
                 
             # if count >= args.budget:
             #     print('Ran out of budget')
@@ -234,6 +245,12 @@ class HC_trainer(SimpleTrainer):
         
         if args.backbone == "gpt2":
             count = gpt2.complete_gpt2.count
+
+        if args.backbone == "phi2":
+            count = phi2.complete_gpt2.count
+        
+        if args.backbone == "tinyllama":
+            count = tinyllama.complete_gpt2.count
             
         print('APICalls for search:\t', count)
 
